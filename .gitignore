@@ -37,6 +37,12 @@ yarn-error.log*
 /prisma/*.db
 /prisma/*.db-journal
 
+# generated AI assistant skills
+/.agents/
+/.claude/
+/.cursor/
+/.devin/
+
 # vercel
 .vercel
 
