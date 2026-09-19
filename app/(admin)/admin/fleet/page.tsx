@@ -15,6 +15,17 @@ export default async function AdminFleetPage() {
   async function addVehicle(formData: FormData) {
     "use server";
     
+    let rawImageUrl = (formData.get('imageUrl') as string).trim();
+
+    // If an optimized local Next.js image URL was pasted, extract the original URL
+    if (rawImageUrl.includes('/_next/image?url=')) {
+      const parsedUrl = new URL(rawImageUrl, 'http://localhost:3000');
+      const extracted = parsedUrl.searchParams.get('url');
+      if (extracted) {
+        rawImageUrl = decodeURIComponent(extracted);
+      }
+    }
+
     await prisma.vehicle.create({
       data: {
         name: formData.get('name') as string,
@@ -22,7 +33,7 @@ export default async function AdminFleetPage() {
         passengers: Number(formData.get('passengers')),
         luggage: Number(formData.get('luggage')),
         hourlyRate: Number(formData.get('hourlyRate')),
-        imageUrl: formData.get('imageUrl') as string,
+        imageUrl: rawImageUrl,
         description: formData.get('description') as string,
       }
     });
@@ -132,6 +143,7 @@ export default async function AdminFleetPage() {
                     src={vehicle.imageUrl} 
                     alt={vehicle.name} 
                     fill 
+                    unoptimized
                     className="object-cover" 
                     sizes="128px"
                   />
