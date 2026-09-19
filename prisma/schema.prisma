@@ -1,0 +1,40 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite" 
+  url      = "file:./dev.db"
+}
+
+model Vehicle {
+  id              String   @id @default(cuid())
+  name            String
+  class           String   // e.g., "Luxury Sedan", "SUV"
+  passengers      Int
+  luggage         Int
+  imageUrl        String
+  hourlyRate      Float?
+  description     String
+  isAvailable     Boolean  @default(true)
+}
+
+model Inquiry {
+  id              String   @id @default(cuid())
+  clientName      String
+  email           String
+  phone           String
+  pickupDate      DateTime
+  pickupLocation  String
+  dropoffLocation String
+  passengers      Int
+  vehicleChoice   String?
+  status          String   @default("PENDING") // PENDING, CONFIRMED, REJECTED
+  createdAt       DateTime @default(now())
+}
+
+model Admin {
+  id       String @id @default(cuid())
+  email    String @unique
+  password String // Hashed password
+}
