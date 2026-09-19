@@ -1,7 +1,9 @@
 // app/(public)/book/page.tsx
 import { PrismaClient } from '@prisma/client';
 import { redirect } from 'next/navigation';
+import { revalidatePath } from 'next/cache';
 import Link from 'next/link';
+import SubmitButton from '@/components/SubmitButton';
 
 const prisma = new PrismaClient();
 
@@ -13,41 +15,54 @@ export const metadata = {
 export default async function BookPage({
   searchParams,
 }: {
-  searchParams: { [key: string]: string | string[] | undefined };
+  // In Next.js 15, searchParams must be awaited as a Promise
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
-  // Check if form was successfully submitted
-  const isSuccess = searchParams?.success === 'true';
-  // Check if user clicked "Reserve" on a specific vehicle from the Fleet page
-  const preselectedVehicle = searchParams?.vehicle as string || '';
+  const params = await searchParams;
+  const isSuccess = params?.success === 'true';
+  const errorMessage = params?.error as string;
+  const preselectedVehicle = params?.vehicle as string || '';
 
-  // Fetch available vehicles for the dropdown
   const vehicles = await prisma.vehicle.findMany({
     where: { isAvailable: true },
     orderBy: { hourlyRate: 'desc' },
   });
 
-  // SERVER ACTION: Handle form submission
+  // SERVER ACTION: Handle form submission with Error Handling
   async function submitInquiry(formData: FormData) {
     "use server";
     
-    const rawDate = formData.get('pickupDate') as string;
-    const pickupDate = new Date(rawDate);
+    let hasError = false;
+    
+    try {
+      const rawDate = formData.get('pickupDate') as string;
+      const pickupDate = new Date(rawDate);
 
-    await prisma.inquiry.create({
-      data: {
-        clientName: formData.get('clientName') as string,
-        email: formData.get('email') as string,
-        phone: formData.get('phone') as string,
-        pickupDate: pickupDate,
-        pickupLocation: formData.get('pickupLocation') as string,
-        dropoffLocation: formData.get('dropoffLocation') as string,
-        passengers: Number(formData.get('passengers')),
-        vehicleChoice: formData.get('vehicleChoice') as string,
-      }
-    });
+      await prisma.inquiry.create({
+        data: {
+          clientName: formData.get('clientName') as string,
+          email: formData.get('email') as string,
+          phone: formData.get('phone') as string,
+          pickupDate: pickupDate,
+          pickupLocation: formData.get('pickupLocation') as string,
+          dropoffLocation: formData.get('dropoffLocation') as string,
+          passengers: Number(formData.get('passengers')),
+          vehicleChoice: formData.get('vehicleChoice') as string,
+        }
+      });
+      
+      revalidatePath('/admin', 'layout'); 
+    } catch (error) {
+      console.error("Database Error:", error);
+      hasError = true;
+    }
 
-    // Redirect to the same page with a success parameter
-    redirect('/book?success=true');
+    // Redirects must happen OUTSIDE the try/catch block in Next.js
+    if (hasError) {
+      redirect('/book?error=Failed to process request. Please try again.');
+    } else {
+      redirect('/book?success=true');
+    }
   }
 
   // SUCCESS STATE UI
@@ -78,6 +93,12 @@ export default async function BookPage({
         <p className="text-zinc-400 text-lg">Provide your trip details below, and we will arrange the perfect vehicle for your needs.</p>
       </div>
 
+      {errorMessage && (
+        <div className="mb-8 p-4 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-center">
+          {errorMessage}
+        </div>
+      )}
+
       <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-8 md:p-10">
         <form action={submitInquiry} className="space-y-8">
           
@@ -106,7 +127,6 @@ export default async function BookPage({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-zinc-400 mb-2">Pickup Date & Time</label>
-                {/* datetime-local opens a native calendar/clock picker on mobile and desktop */}
                 <input name="pickupDate" type="datetime-local" required className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-white transition-colors [color-scheme:dark]" />
               </div>
               <div>
@@ -140,9 +160,7 @@ export default async function BookPage({
             </div>
           </div>
 
-          <button type="submit" className="w-full bg-white text-black font-bold text-lg rounded-xl px-4 py-4 hover:bg-zinc-200 transition-colors mt-8">
-            Submit Reservation Request
-          </button>
+          <SubmitButton />
         </form>
       </div>
     </div>

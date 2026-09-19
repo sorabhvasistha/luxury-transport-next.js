@@ -1,8 +1,16 @@
 // app/(admin)/layout.tsx
-import LogoutButton from "@/components/LogoutButton";
 import Link from "next/link";
+import LogoutButton from "@/components/LogoutButton";
+import { PrismaClient } from "@prisma/client";
 
-export default function AdminLayout({ children }: { children: React.ReactNode }) {
+const prisma = new PrismaClient();
+
+export default async function AdminLayout({ children }: { children: React.ReactNode }) {
+  // Fetch the count of pending leads for the notification badge
+  const pendingCount = await prisma.inquiry.count({
+    where: { status: 'PENDING' }
+  });
+
   return (
     <div className="min-h-screen flex bg-zinc-900 text-white font-sans">
       {/* Sidebar */}
@@ -13,22 +21,21 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </h2>
         </div>
         <nav className="flex-1 p-4 space-y-2">
-          <Link 
-            href="/admin/dashboard" 
-            className="block px-4 py-2.5 rounded-lg text-sm font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
-          >
+          <Link href="/admin/dashboard" className="block px-4 py-2.5 rounded-lg text-sm font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors">
             Overview
           </Link>
-          <Link 
-            href="/admin/leads" 
-            className="block px-4 py-2.5 rounded-lg text-sm font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
-          >
-            Booking Leads
+          
+          {/* Booking Leads Link with Notification Badge */}
+          <Link href="/admin/leads" className="flex items-center justify-between px-4 py-2.5 rounded-lg text-sm font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors">
+            <span>Booking Leads</span>
+            {pendingCount > 0 && (
+              <span className="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full animate-pulse">
+                {pendingCount}
+              </span>
+            )}
           </Link>
-          <Link 
-            href="/admin/fleet" 
-            className="block px-4 py-2.5 rounded-lg text-sm font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
-          >
+          
+          <Link href="/admin/fleet" className="block px-4 py-2.5 rounded-lg text-sm font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors">
             Manage Fleet
           </Link>
         </nav>

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import MobileMenu from "../../components/MobileMenu";
 
 export default function PublicLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -15,12 +16,15 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
             <Link href="/services" className="hover:text-white transition-colors">Services</Link>
             <Link href="/about" className="hover:text-white transition-colors">About</Link>
           </nav>
-          <Link 
-            href="/book" 
-            className="bg-white text-black px-6 py-2.5 text-sm font-semibold rounded-full hover:bg-zinc-200 transition-colors"
-          >
-            Book Now
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link 
+              href="/book" 
+              className="bg-white text-black px-4 md:px-6 py-2.5 text-sm font-semibold rounded-full hover:bg-zinc-200 transition-colors"
+            >
+              Book Now
+            </Link>
+            <MobileMenu />
+          </div>
         </div>
       </header>
 
