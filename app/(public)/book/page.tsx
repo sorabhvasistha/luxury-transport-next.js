@@ -1,4 +1,6 @@
 // app/(public)/book/page.tsx
+
+import nodemailer from 'nodemailer';
 import { PrismaClient } from '@prisma/client';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
@@ -28,16 +30,17 @@ export default async function BookPage({
     orderBy: { hourlyRate: 'desc' },
   });
 
-  // SERVER ACTION: Handle form submission with Error Handling
+  // SERVER ACTION: Handle form submission with decoupled error handling
   async function submitInquiry(formData: FormData) {
     "use server";
     
-    let hasError = false;
+    let dbSuccess = false;
     
+    // 1. PRIMARY ACTION: Save to the Database
     try {
       const rawDate = formData.get('pickupDate') as string;
       const pickupDate = new Date(rawDate);
-
+      
       await prisma.inquiry.create({
         data: {
           clientName: formData.get('clientName') as string,
@@ -51,18 +54,52 @@ export default async function BookPage({
         }
       });
       
+      dbSuccess = true;
       revalidatePath('/admin', 'layout'); 
+      
     } catch (error) {
-      console.error("Database Error:", error);
-      hasError = true;
+      console.error("Database Error - Failed to save lead:", error);
     }
 
-    // Redirects must happen OUTSIDE the try/catch block in Next.js
-    if (hasError) {
+    // If the database fails, stop immediately and show the error to the user
+    if (!dbSuccess) {
       redirect('/book?error=Failed to process request. Please try again.');
-    } else {
-      redirect('/book?success=true');
     }
+
+    // 2. SECONDARY ACTION: Send the Email (Only runs if DB was successful)
+    try {
+      const transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: {
+          user: process.env.EMAIL_USER,
+          pass: process.env.EMAIL_PASS,
+        },
+      });
+
+      await transporter.sendMail({
+        from: `"LuxeRide System" <${process.env.EMAIL_USER}>`,
+        to: process.env.EMAIL_USER,
+        replyTo: formData.get('email') as string,
+        subject: `🚨 New Booking Lead: ${formData.get('clientName')}`,
+        html: `
+          <div style="font-family: sans-serif; max-width: 600px; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px;">
+            <h2 style="color: #111827; border-bottom: 1px solid #e5e7eb; padding-bottom: 10px;">New Reservation Request</h2>
+            <p><strong>Client:</strong> ${formData.get('clientName')}</p>
+            <p><strong>Email:</strong> ${formData.get('email')}</p>
+            <p><strong>Phone:</strong> ${formData.get('phone')}</p>
+            <div style="margin-top: 30px; text-align: center;">
+              <a href="${process.env.NEXTAUTH_URL}/admin/leads" style="background-color: #000; color: #fff; text-decoration: none; padding: 12px 24px; border-radius: 6px; font-weight: bold;">View in Dashboard</a>
+            </div>
+          </div>
+        `,
+      });
+    } catch (emailError) {
+      // If the email fails, we log it for the admin, but we DO NOT fail the user's booking.
+      console.error("Non-Fatal Error: Lead saved, but email failed to send:", emailError);
+    }
+
+    // Redirect to the success screen because the booking is safely in the database
+    redirect('/book?success=true');
   }
 
   // SUCCESS STATE UI
