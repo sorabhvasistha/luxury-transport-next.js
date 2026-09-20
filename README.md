@@ -12,11 +12,17 @@ LuxeRide is a Next.js luxury transportation application. Visitors can browse the
 - JWT-based authenticated sessions stored in secure cookies
 - Protected `/admin/*` routes through NextAuth middleware
 - Public LuxeRide landing page, fleet, services, about, and booking routes
-- Responsive Tailwind CSS interface
+- Responsive Tailwind CSS interface with a mobile hamburger navigation menu
 - Remote vehicle images from Unsplash through Next.js image configuration
 - Admin dashboard with vehicle and pending-inquiry counts
+- Booking inquiry persistence through a Prisma server action
+- Email notification for new booking inquiries through Nodemailer and Gmail SMTP
+- Inquiry pricing and payment status tracking
+- PayU checkout initialization with SHA-512 payment hashes
+- PayU success and failure callbacks with transaction status updates
+- Payment success and failure result pages
 
-The booking, fleet-management, and lead-management screens currently provide the application surfaces for those workflows; persistence for new bookings and admin mutations can be added on top of the existing Prisma models.
+The booking flow saves inquiries to SQLite, sends an email notification when configured, and can hand a priced inquiry off to the PayU checkout route. Fleet and lead-management screens provide the current admin surfaces for those workflows.
 
 ## Project Structure
 
@@ -26,17 +32,24 @@ luxury-transport-next.js/
 │   ├── (public)/
 │   │   ├── page.tsx              # Public landing page
 │   │   ├── about/page.tsx        # Company information
-│   │   ├── book/page.tsx         # Booking entry point
+│   │   ├── book/page.tsx         # Booking form and server action
+│   │   ├── checkout/[id]/        # PayU checkout page and client form
 │   │   ├── fleet/page.tsx        # Database-backed fleet listing
+│   │   ├── payment-failed/       # Failed payment result page
+│   │   ├── payment-success/      # Successful payment result page
 │   │   ├── services/page.tsx     # Service overview
+│   │   ├── MobileMenu.tsx        # Mobile public navigation
 │   │   └── layout.tsx            # Public navigation and footer
 │   ├── (admin)/
 │   │   ├── admin/dashboard/      # Fleet and inquiry statistics
-│   │   ├── admin/fleet/           # Fleet administration surface
-│   │   ├── admin/leads/           # Booking lead administration surface
-│   │   └── layout.tsx             # Protected admin shell
+│   │   ├── admin/fleet/            # Fleet administration surface
+│   │   ├── admin/leads/            # Booking lead administration surface
+│   │   └── layout.tsx              # Protected admin shell
 │   ├── admin/login/page.tsx       # Administrator sign-in form
 │   ├── api/auth/[...nextauth]/    # NextAuth credentials endpoints
+│   ├── api/payu/checkout/         # Create PayU checkout payload
+│   ├── api/payu/success/          # PayU success callback
+│   ├── api/payu/failure/          # PayU failure callback
 │   ├── globals.css                # Global Tailwind styles
 │   └── layout.tsx                 # Root layout and fonts
 ├── prisma/
@@ -58,26 +71,48 @@ PostgreSQL is not required. The application uses SQLite and stores the local dat
 
 ## Environment Variables
 
-Create `.env.local` in the project root with a secret used by NextAuth:
+The repository may include `bkp.env.local` as a local environment template. Rename it to `.env.local` before starting the application:
+
+```bash
+mv bkp.env.local .env.local
+```
+
+On Windows PowerShell:
+
+```powershell
+Rename-Item bkp.env.local .env.local
+```
+
+Review every value in `.env.local` and replace template or development credentials with your own values. Do not commit the renamed file or share its secrets.
+
+The required variables are:
 
 ```env
 NEXTAUTH_SECRET=replace-with-a-long-random-secret
-```
-
-For local development, NextAuth can use `http://localhost:3000` as its default URL. Set `NEXTAUTH_URL` explicitly when deploying behind a custom domain or proxy:
-
-```env
 NEXTAUTH_URL=http://localhost:3000
+EMAIL_USER=your-gmail-address
+EMAIL_PASS=your-gmail-app-password
+PAYU_MERCHANT_KEY=your-payu-merchant-key
+PAYU_MERCHANT_SALT=your-payu-merchant-salt
+PAYU_URL=https://test.payu.in/_payment
 ```
 
-Never commit `.env.local` or production secrets.
+`EMAIL_USER` and `EMAIL_PASS` are used for booking notification emails. `PAYU_URL` should point to the PayU environment you intend to use, such as the sandbox endpoint during development. `NEXTAUTH_URL` must match the public application URL because PayU uses it to construct success and failure callback URLs.
+
+Never commit `bkp.env.local`, `.env.local`, or production secrets.
 
 ## Run Locally
 
-Install dependencies, generate the Prisma client, create the SQLite schema, and seed development data:
+Install dependencies and rename the environment template:
 
 ```bash
 npm install
+mv bkp.env.local .env.local
+```
+
+On the first run, generate the Prisma client, create the SQLite schema, and seed development data:
+
+```bash
 npx prisma generate
 npx prisma db push
 npx tsx prisma/seed.ts
@@ -111,11 +146,17 @@ Use these credentials at [http://localhost:3000/admin/login](http://localhost:30
 | `GET` | `/services` | View transportation services |
 | `GET` | `/about` | View company information |
 | `GET` | `/book` | Open the booking flow entry point |
+| `GET` | `/checkout/[id]` | Start payment for a priced inquiry |
+| `GET` | `/payment-success` | Payment success result |
+| `GET` | `/payment-failed` | Payment failure result |
 | `GET` | `/admin/login` | Administrator sign-in |
 | `GET` | `/admin/dashboard` | Protected dashboard statistics |
 | `GET` | `/admin/fleet` | Protected fleet management surface |
 | `GET` | `/admin/leads` | Protected booking-lead surface |
 | `GET/POST` | `/api/auth/*` | NextAuth authentication endpoints |
+| `POST` | `/api/payu/checkout` | Build a signed PayU checkout payload |
+| `POST` | `/api/payu/success` | Verify PayU success and mark inquiry paid |
+| `POST` | `/api/payu/failure` | Mark a failed PayU inquiry payment |
 
 ## Authentication Flow
 
@@ -126,11 +167,25 @@ Use these credentials at [http://localhost:3000/admin/login](http://localhost:30
 5. Requests to `/admin/*`, except `/admin/login`, pass through `middleware.ts`.
 6. An unauthenticated request is redirected to `/admin/login`.
 
+## Booking and Payment Flow
+
+1. A visitor submits the booking form at `/book`.
+2. The server action validates the form data and creates an `Inquiry` record with `PENDING` status.
+3. If Gmail SMTP variables are configured, Nodemailer sends a notification to the configured email account. Email failure is logged without discarding a saved inquiry.
+4. An administrator can assign a price to an inquiry and provide the customer with `/checkout/[id]`.
+5. The checkout client requests a signed payload from `POST /api/payu/checkout`.
+6. The browser submits the signed form to `PAYU_URL`.
+7. PayU posts to `/api/payu/success` or `/api/payu/failure`.
+8. The callback updates `paymentStatus` and redirects to the matching result page.
+
+The checkout route rejects missing inquiry IDs, missing or non-positive prices, already-paid inquiries, and incomplete PayU configuration.
+
 ## Database Models
 
 - `Admin`: administrator email and bcrypt password hash.
 - `Vehicle`: vehicle name, class, passenger capacity, luggage capacity, image, rate, description, and availability.
 - `Inquiry`: booking request fields and status values such as `PENDING`, `CONFIRMED`, and `REJECTED`.
+- `Inquiry` payment fields: optional `price`, `paymentStatus` (`UNPAID`, `PAID`, or `FAILED`), and `transactionId`.
 
 To reset and reseed the local vehicle data, run:
 
@@ -173,6 +228,7 @@ npx prisma validate
 The root `.gitignore` excludes generated and machine-specific files, including:
 
 - `.env*` environment files
+- `bkp.env.local` and `.env.local` environment files containing credentials
 - `node_modules/`
 - `.next/` and production build output
 - SQLite database files created under `prisma/`
