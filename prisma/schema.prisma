@@ -31,6 +31,11 @@ model Inquiry {
   vehicleChoice   String?
   status          String   @default("PENDING") // PENDING, CONFIRMED, REJECTED
   createdAt       DateTime @default(now())
+
+  // --- PAYMENT FIELDS ---
+  price           Float?
+  paymentStatus   String   @default("UNPAID") // UNPAID, PAID, FAILED
+  transactionId   String?
 }
 
 model Admin {
